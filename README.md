@@ -54,6 +54,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+No Windows, prefira deixar o projeto em um caminho sem acentos e sem caracteres
+especiais, por exemplo `C:\dev\parallel-face-search`. O `dlib`, usado pelo
+`face_recognition`, pode falhar ao abrir os modelos `.dat` quando o caminho tem
+caracteres não ASCII.
+
+Para validar o ambiente:
+
+```bash
+python scripts/check_environment.py
+```
+
 Teste sem enviar para o R2:
 
 ```bash
