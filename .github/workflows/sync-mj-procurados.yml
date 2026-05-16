@@ -2,6 +2,11 @@ name: Sync MJ procurados
 
 on:
   workflow_dispatch:
+    inputs:
+      limit:
+        description: "Limite opcional de registros para teste manual"
+        required: false
+        default: ""
   schedule:
     - cron: "0 6 * * *"
 
@@ -41,4 +46,10 @@ jobs:
           R2_PREFIX: mj-procurados
           SCRAPE_DELAY_SECONDS: "0.5"
           FACE_DETECTION_MODEL: hog
-        run: python scripts/sync_mj_procurados.py
+          SYNC_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          if [ -n "$SYNC_LIMIT" ]; then
+            python scripts/sync_mj_procurados.py --limit "$SYNC_LIMIT"
+          else
+            python scripts/sync_mj_procurados.py
+          fi
