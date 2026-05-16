@@ -71,6 +71,48 @@ Sem `--no-upload`, o script exige `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 como sucesso gravando apenas em arquivo local quando o R2 estiver mal
 configurado.
 
+## Comparação Pela Webcam
+
+O script `scripts/webcam_face_search.py` abre a webcam, gera o vetor facial do
+rosto detectado no vídeo e compara contra os vetores salvos no `manifest.json`.
+
+Para rodar carregando o manifesto direto do R2:
+
+```bash
+set -a
+source .env
+set +a
+python scripts/webcam_face_search.py --mode parallel --workers 4
+```
+
+Para rodar com um `manifest.json` local:
+
+```bash
+python scripts/webcam_face_search.py \
+  --manifest out/mj-procurados/manifest.json \
+  --mode parallel \
+  --workers 4
+```
+
+Modos disponíveis:
+
+- `sequential`: compara o rosto da webcam contra a base em um único processo.
+- `parallel`: divide a base entre múltiplos workers/processos.
+- `benchmark`: executa as duas estratégias e mostra tempo médio e speedup.
+
+Exemplo para análise de desempenho:
+
+```bash
+python scripts/webcam_face_search.py --mode benchmark --workers 4 --repeat 100
+```
+
+O `--repeat` repete a mesma comparação para aumentar a carga computacional e
+deixar a diferença entre sequencial e paralelo mais visível no relatório.
+Durante a execução, pressione `q` para sair.
+
+O percentual exibido na tela é um score derivado da distância entre vetores, não
+uma probabilidade estatística calibrada. Use como métrica de similaridade.
+
 ## Observações de privacidade
 
 Vetor facial é dado biométrico derivado de pessoa natural. Mesmo partindo de
