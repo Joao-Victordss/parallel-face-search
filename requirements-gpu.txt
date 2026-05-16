@@ -1,0 +1,14 @@
+# Dependencias da maquina que roda a webcam, com GPU NVIDIA/CUDA.
+# Instale primeiro o requirements.txt e depois este arquivo.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-gpu.txt
+#
+# Nao instale onnxruntime e onnxruntime-gpu no mesmo ambiente sem necessidade:
+# o onnxruntime-gpu ja fornece tambem o provider de CPU. Em ambiente exclusivo
+# de GPU, desinstale o onnxruntime antes:
+#
+#   pip uninstall -y onnxruntime
+#   pip install -r requirements-gpu.txt
+#
+onnxruntime-gpu==1.18.1

@@ -32,10 +32,16 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake
+          sudo apt-get install -y libgl1 libglib2.0-0
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
+      - name: Install the face_search package
+        run: pip install -e .
+
+      - name: Cache InsightFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.insightface
+          key: insightface-buffalo_l
 
       - name: Sync public records to R2
         env:
@@ -45,11 +51,12 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PREFIX: mj-procurados
           SCRAPE_DELAY_SECONDS: "0.5"
-          FACE_DETECTION_MODEL: hog
+          ONNX_PROVIDER: cpu
+          INSIGHTFACE_PACK: buffalo_l
           SYNC_LIMIT: ${{ github.event.inputs.limit }}
         run: |
           if [ -n "$SYNC_LIMIT" ]; then
-            python scripts/sync_mj_procurados.py --limit "$SYNC_LIMIT"
+            face-search-sync --limit "$SYNC_LIMIT"
           else
-            python scripts/sync_mj_procurados.py
+            face-search-sync
           fi
