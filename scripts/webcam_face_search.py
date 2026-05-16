@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-import face_recognition
 import numpy as np
 import psutil
 
@@ -217,6 +216,8 @@ def encode_frame_faces(
     frame_scale: float,
     detection_model: str,
 ) -> tuple[list[tuple[int, int, int, int]], list[tuple[float, ...]]]:
+    import face_recognition
+
     small = cv2.resize(frame_bgr, (0, 0), fx=frame_scale, fy=frame_scale)
     rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
     small_locations = face_recognition.face_locations(rgb_small, model=detection_model)

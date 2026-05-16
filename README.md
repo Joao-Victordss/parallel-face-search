@@ -65,6 +65,9 @@ Para validar o ambiente:
 python scripts/check_environment.py
 ```
 
+Para rodar no Windows, siga o guia específico em
+[`docs/WINDOWS_SETUP.md`](docs/WINDOWS_SETUP.md).
+
 Teste sem enviar para o R2:
 
 ```bash
