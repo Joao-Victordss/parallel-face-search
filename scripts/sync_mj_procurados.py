@@ -14,10 +14,11 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import boto3
-import face_recognition
 import requests
 from bs4 import BeautifulSoup
 from botocore.exceptions import ClientError
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 LIST_URL = (
@@ -28,6 +29,57 @@ USER_AGENT = "mj-procurados-sync/1.0 (+academic dataset sync)"
 DATE_RE = re.compile(r"(?P<date>\d{2}/\d{2}/\d{4})")
 UPDATED_RE = re.compile(r"Atualizado em\s+(\d{2}/\d{2}/\d{4}\s+\d{2}h\d{2})")
 LIST_ITEM_RE = re.compile(r"^(?P<title>.+?)\s+(?P<date>\d{2}/\d{2}/\d{4})$")
+FACE_VECTOR_MODEL = "face_recognition/dlib-resnet-v1-128d"
+DEFAULT_R2_PREFIX = "mj-procurados"
+DEFAULT_OUTPUT_DIR = Path("out")
+
+
+@dataclass(frozen=True)
+class Config:
+    limit: int | None
+    no_upload: bool
+    r2_account_id: str | None
+    r2_access_key_id: str | None
+    r2_secret_access_key: str | None
+    r2_bucket: str | None
+    r2_prefix: str
+    output_dir: Path
+    scrape_delay_seconds: float
+    face_detection_model: str
+
+    @classmethod
+    def from_env(cls, limit: int | None, no_upload: bool) -> "Config":
+        return cls(
+            limit=limit,
+            no_upload=no_upload,
+            r2_account_id=os.getenv("R2_ACCOUNT_ID"),
+            r2_access_key_id=os.getenv("R2_ACCESS_KEY_ID"),
+            r2_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY"),
+            r2_bucket=os.getenv("R2_BUCKET"),
+            r2_prefix=os.getenv("R2_PREFIX", DEFAULT_R2_PREFIX).strip("/") or DEFAULT_R2_PREFIX,
+            output_dir=Path(os.getenv("OUTPUT_DIR", str(DEFAULT_OUTPUT_DIR))),
+            scrape_delay_seconds=float(os.getenv("SCRAPE_DELAY_SECONDS", "0.5")),
+            face_detection_model=os.getenv("FACE_DETECTION_MODEL", "hog"),
+        )
+
+    @property
+    def upload_enabled(self) -> bool:
+        return not self.no_upload
+
+    def require_r2(self) -> None:
+        missing = [
+            name
+            for name, value in {
+                "R2_ACCOUNT_ID": self.r2_account_id,
+                "R2_ACCESS_KEY_ID": self.r2_access_key_id,
+                "R2_SECRET_ACCESS_KEY": self.r2_secret_access_key,
+                "R2_BUCKET": self.r2_bucket,
+            }.items()
+            if not value
+        ]
+        if missing:
+            names = ", ".join(missing)
+            raise RuntimeError(f"variaveis R2 ausentes: {names}. Use --no-upload para teste local.")
 
 
 @dataclass(frozen=True)
@@ -37,6 +89,12 @@ class ListedPerson:
     state: str
     listed_date: str | None
     source_url: str
+
+
+@dataclass
+class SyncStats:
+    generated_count: int = 0
+    reused_count: int = 0
 
 
 def now_iso() -> str:
@@ -51,6 +109,24 @@ def fetch(session: requests.Session, url: str) -> requests.Response:
     response = session.get(url, timeout=45)
     response.raise_for_status()
     return response
+
+
+def build_session() -> requests.Session:
+    retry = Retry(
+        total=4,
+        connect=4,
+        read=4,
+        status=4,
+        backoff_factor=1,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def record_id_from_url(url: str) -> str:
@@ -130,6 +206,8 @@ def largest_face_location(locations: list[tuple[int, int, int, int]]) -> tuple[i
 
 
 def build_face_embedding(image_bytes: bytes, detection_model: str) -> list[float]:
+    import face_recognition
+
     image = face_recognition.load_image_file(BytesIO(image_bytes))
     locations = face_recognition.face_locations(image, model=detection_model)
     if not locations:
@@ -148,38 +226,36 @@ def build_face_embedding(image_bytes: bytes, detection_model: str) -> list[float
     return [round(float(value), 8) for value in encodings[0]]
 
 
-def r2_client() -> Any | None:
-    account_id = os.getenv("R2_ACCOUNT_ID")
-    access_key = os.getenv("R2_ACCESS_KEY_ID")
-    secret_key = os.getenv("R2_SECRET_ACCESS_KEY")
-    if not all([account_id, access_key, secret_key, os.getenv("R2_BUCKET")]):
+def r2_client(config: Config) -> Any | None:
+    if not config.upload_enabled:
         return None
 
+    config.require_r2()
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
+        endpoint_url=f"https://{config.r2_account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=config.r2_access_key_id,
+        aws_secret_access_key=config.r2_secret_access_key,
         region_name="auto",
     )
 
 
-def object_key(*parts: str) -> str:
-    prefix = os.getenv("R2_PREFIX", "mj-procurados").strip("/")
+def object_key(config: Config, *parts: str) -> str:
+    prefix = config.r2_prefix
     clean_parts = [part.strip("/") for part in parts if part]
     return "/".join([prefix, *clean_parts])
 
 
-def load_existing_manifest(client: Any | None) -> dict[str, Any] | None:
+def load_existing_manifest(config: Config, client: Any | None) -> dict[str, Any] | None:
+    key = object_key(config, "manifest.json")
     if client is None:
-        path = Path("out") / object_key("manifest.json")
+        path = config.output_dir / key
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    bucket = os.environ["R2_BUCKET"]
     try:
-        response = client.get_object(Bucket=bucket, Key=object_key("manifest.json"))
+        response = client.get_object(Bucket=config.r2_bucket, Key=key)
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code")
         if error_code in {"NoSuchKey", "404", "NotFound"}:
@@ -193,33 +269,40 @@ def load_existing_manifest(client: Any | None) -> dict[str, Any] | None:
     return json.loads(response["Body"].read().decode("utf-8"))
 
 
-def put_json(client: Any | None, key: str, payload: dict[str, Any]) -> None:
+def put_json(config: Config, client: Any | None, key: str, payload: dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
     if client is None:
-        path = Path("out") / key
+        path = config.output_dir / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(body)
         return
 
     client.put_object(
-        Bucket=os.environ["R2_BUCKET"],
+        Bucket=config.r2_bucket,
         Key=key,
         Body=body,
         ContentType="application/json; charset=utf-8",
     )
 
 
-def collect_listed_people(session: requests.Session, limit: int | None, delay_seconds: float) -> list[ListedPerson]:
+def collect_listed_people(
+    session: requests.Session,
+    limit: int | None,
+    delay_seconds: float,
+) -> list[ListedPerson]:
     page_url: str | None = LIST_URL
     people: list[ListedPerson] = []
     seen_pages: set[str] = set()
+    seen_records: set[str] = set()
 
     while page_url and page_url not in seen_pages:
         seen_pages.add(page_url)
         response = fetch(session, page_url)
         page_people, next_url = parse_listing(response.text, page_url)
-        people.extend(page_people)
-        print(f"coletados {len(page_people)} registros de {page_url}")
+        new_people = [person for person in page_people if person.record_id not in seen_records]
+        people.extend(new_people)
+        seen_records.update(person.record_id for person in new_people)
+        print(f"coletados {len(new_people)} registros de {page_url}")
 
         if limit and len(people) >= limit:
             return people[:limit]
@@ -241,7 +324,11 @@ def existing_records_by_id(manifest: dict[str, Any] | None) -> dict[str, dict[st
     }
 
 
-def can_reuse_embedding(existing: dict[str, Any] | None, person: ListedPerson, updated_at: str | None) -> bool:
+def can_reuse_embedding(
+    existing: dict[str, Any] | None,
+    person: ListedPerson,
+    updated_at: str | None,
+) -> bool:
     if not existing:
         return False
     return (
@@ -280,7 +367,7 @@ def build_record(
         "updated_at": updated_at,
         "source_url": person.source_url,
         "face_vector": face_vector,
-        "face_vector_model": "face_recognition/dlib-resnet-v1-128d",
+        "face_vector_model": FACE_VECTOR_MODEL,
         "source_image_sha256": image_hash,
         "synced_at": now_iso(),
     }
@@ -288,26 +375,27 @@ def build_record(
 
 
 def sync(limit: int | None, no_upload: bool) -> None:
-    delay_seconds = float(os.getenv("SCRAPE_DELAY_SECONDS", "0.5"))
-    detection_model = os.getenv("FACE_DETECTION_MODEL", "hog")
-
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
-
-    client = None if no_upload else r2_client()
+    config = Config.from_env(limit=limit, no_upload=no_upload)
+    session = build_session()
+    client = r2_client(config)
     if client is None:
-        print("R2 nao configurado ou upload desativado; gravando em out/")
+        print(f"upload desativado; gravando em {config.output_dir}/")
 
-    existing_manifest = load_existing_manifest(client)
+    existing_manifest = load_existing_manifest(config, client)
     existing_by_id = existing_records_by_id(existing_manifest)
-    listed_people = collect_listed_people(session, limit=limit, delay_seconds=delay_seconds)
+    listed_people = collect_listed_people(
+        session,
+        limit=config.limit,
+        delay_seconds=config.scrape_delay_seconds,
+    )
     if not listed_people:
-        raise RuntimeError("nenhum registro encontrado; abortando para nao sobrescrever o manifesto")
+        raise RuntimeError(
+            "nenhum registro encontrado; abortando para nao sobrescrever o manifesto"
+        )
 
     records: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    generated_count = 0
-    reused_count = 0
+    stats = SyncStats()
 
     for index, person in enumerate(listed_people, start=1):
         try:
@@ -315,14 +403,19 @@ def sync(limit: int | None, no_upload: bool) -> None:
                 session=session,
                 person=person,
                 existing=existing_by_id.get(person.record_id),
-                detection_model=detection_model,
+                detection_model=config.face_detection_model,
             )
             records.append(record)
             if generated:
-                generated_count += 1
-                put_json(client, object_key("records", f"{person.record_id}.json"), record)
+                stats.generated_count += 1
+                put_json(
+                    config,
+                    client,
+                    object_key(config, "records", f"{person.record_id}.json"),
+                    record,
+                )
             else:
-                reused_count += 1
+                stats.reused_count += 1
             print(f"[{index}/{len(listed_people)}] ok {person.record_id}")
         except Exception as exc:
             failures.append(
@@ -335,33 +428,49 @@ def sync(limit: int | None, no_upload: bool) -> None:
             )
             print(f"[{index}/{len(listed_people)}] falhou {person.record_id}: {exc}")
 
-        time.sleep(delay_seconds)
+        time.sleep(config.scrape_delay_seconds)
 
     if not records:
-        raise RuntimeError("nenhum registro valido processado; abortando para nao sobrescrever o manifesto")
+        raise RuntimeError(
+            "nenhum registro valido processado; abortando para nao sobrescrever o manifesto"
+        )
 
     manifest = {
         "source": LIST_URL,
         "generated_at": now_iso(),
         "record_count": len(records),
         "failure_count": len(failures),
-        "generated_embedding_count": generated_count,
-        "reused_embedding_count": reused_count,
-        "records": sorted(records, key=lambda item: (item.get("state") or "", item.get("name") or "")),
+        "generated_embedding_count": stats.generated_count,
+        "reused_embedding_count": stats.reused_count,
+        "records": sorted(
+            records,
+            key=lambda item: (item.get("state") or "", item.get("name") or ""),
+        ),
         "failures": failures,
     }
-    put_json(client, object_key("manifest.json"), manifest)
+    put_json(config, client, object_key(config, "manifest.json"), manifest)
     print(
         "sync concluido: "
-        f"{len(records)} registros, {generated_count} embeddings novos, "
-        f"{reused_count} reutilizados, {len(failures)} falhas"
+        f"{len(records)} registros, {stats.generated_count} embeddings novos, "
+        f"{stats.reused_count} reutilizados, {len(failures)} falhas"
     )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sincroniza procurados do MJSP para Cloudflare R2.")
-    parser.add_argument("--limit", type=int, default=None, help="Limita a quantidade de registros processados.")
-    parser.add_argument("--no-upload", action="store_true", help="Grava em out/ em vez de enviar ao R2.")
+    parser = argparse.ArgumentParser(
+        description="Sincroniza procurados do MJSP para Cloudflare R2."
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limita a quantidade de registros processados.",
+    )
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="Grava em out/ em vez de enviar ao R2.",
+    )
     return parser.parse_args()
 
 

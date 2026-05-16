@@ -1,6 +1,8 @@
 # Sync MJ Procurados
 
-Sincroniza diariamente a lista pública de procurados do Ministério da Justiça e Segurança Pública, gera vetor facial a partir da imagem pública e grava os dados em Cloudflare R2.
+Sincroniza diariamente a lista pública de procurados do Ministério da Justiça
+e Segurança Pública, gera vetor facial a partir da imagem pública e grava os
+dados em Cloudflare R2.
 
 O dataset gravado contém apenas:
 
@@ -22,11 +24,13 @@ mj-procurados/manifest.json
 mj-procurados/records/<id>.json
 ```
 
-O `manifest.json` contém todos os registros e seus vetores. Os arquivos em `records/` existem para consulta individual.
+O `manifest.json` contém todos os registros e seus vetores. Os arquivos em
+`records/` existem para consulta individual.
 
 ## Configuração
 
-Crie um bucket no Cloudflare R2 e gere uma chave S3 com permissão de leitura/escrita apenas nesse bucket.
+Crie um bucket no Cloudflare R2 e gere uma chave S3 com permissão de
+leitura/escrita apenas nesse bucket.
 
 No repositório GitHub, configure estes secrets:
 
@@ -37,7 +41,8 @@ R2_SECRET_ACCESS_KEY
 R2_BUCKET
 ```
 
-O workflow em `.github/workflows/sync-mj-procurados.yml` roda uma vez por dia às `06:00 UTC` e também pode ser executado manualmente em `workflow_dispatch`.
+O workflow em `.github/workflows/sync-mj-procurados.yml` roda uma vez por dia
+às `06:00 UTC` e também pode ser executado manualmente em `workflow_dispatch`.
 
 ## Rodando localmente
 
@@ -61,6 +66,14 @@ Com variáveis R2 configuradas, rode:
 python scripts/sync_mj_procurados.py
 ```
 
+Sem `--no-upload`, o script exige `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY` e `R2_BUCKET`. Isso evita que o GitHub Actions termine
+como sucesso gravando apenas em arquivo local quando o R2 estiver mal
+configurado.
+
 ## Observações de privacidade
 
-Vetor facial é dado biométrico derivado de pessoa natural. Mesmo partindo de página pública, mantenha o bucket privado, restrinja chaves de acesso, evite logs com dados pessoais além do necessário e documente a finalidade acadêmica do tratamento.
+Vetor facial é dado biométrico derivado de pessoa natural. Mesmo partindo de
+página pública, mantenha o bucket privado, restrinja chaves de acesso, evite
+logs com dados pessoais além do necessário e documente a finalidade acadêmica
+do tratamento.
