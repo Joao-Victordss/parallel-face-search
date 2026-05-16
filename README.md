@@ -113,6 +113,28 @@ Durante a execução, pressione `q` para sair.
 O percentual exibido na tela é um score derivado da distância entre vetores, não
 uma probabilidade estatística calibrada. Use como métrica de similaridade.
 
+Se a câmera não abrir, liste os índices disponíveis:
+
+```bash
+python scripts/webcam_face_search.py --list-cameras
+```
+
+Depois rode informando o índice encontrado:
+
+```bash
+python scripts/webcam_face_search.py --mode benchmark --camera 1
+```
+
+No Linux, também confira se existe algum dispositivo `/dev/video*`:
+
+```bash
+ls -l /dev/video*
+```
+
+Se estiver usando WSL e não aparecer nenhum `/dev/video*`, a webcam não está
+exposta para o Linux. Nesse caso, rode o projeto em Linux nativo ou no Python do
+Windows, ou conecte a câmera ao WSL antes de executar o script.
+
 ## Observações de privacidade
 
 Vetor facial é dado biométrico derivado de pessoa natural. Mesmo partindo de

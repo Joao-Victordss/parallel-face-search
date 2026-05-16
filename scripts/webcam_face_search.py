@@ -150,6 +150,34 @@ def top_matches_parallel(
     return matches[:top_k]
 
 
+def probe_camera(index: int) -> bool:
+    capture = cv2.VideoCapture(index)
+    try:
+        return capture.isOpened()
+    finally:
+        capture.release()
+
+
+def list_available_cameras(max_index: int) -> list[int]:
+    return [index for index in range(max_index + 1) if probe_camera(index)]
+
+
+def open_camera(camera: int, max_index: int) -> tuple[cv2.VideoCapture, int]:
+    indexes = range(max_index + 1) if camera < 0 else [camera]
+    for index in indexes:
+        capture = cv2.VideoCapture(index)
+        if capture.isOpened():
+            return capture, index
+        capture.release()
+
+    tried = f"0..{max_index}" if camera < 0 else str(camera)
+    raise RuntimeError(
+        f"nao foi possivel abrir camera nos indices {tried}. "
+        "Verifique se existe /dev/video*, se outro app esta usando a camera "
+        "ou rode com --list-cameras."
+    )
+
+
 def load_manifest_from_path(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -326,6 +354,8 @@ def compare_face(
 
 def run_webcam(args: argparse.Namespace) -> None:
     validate_args(args)
+    capture, camera_index = open_camera(args.camera, args.max_camera_index)
+
     manifest = (
         load_manifest_from_path(args.manifest)
         if args.manifest
@@ -346,11 +376,8 @@ def run_webcam(args: argparse.Namespace) -> None:
             for chunk in worker_chunks
         ]
 
-    capture = cv2.VideoCapture(args.camera)
-    if not capture.isOpened():
-        raise RuntimeError(f"nao foi possivel abrir a camera {args.camera}")
-
     print(f"base carregada: {len(candidates)} vetores")
+    print(f"camera aberta: {camera_index}")
     print("pressione q para sair")
 
     stats = RuntimeStats()
@@ -437,7 +464,23 @@ def parse_args() -> argparse.Namespace:
         help="Modo de comparacao.",
     )
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 1)
-    parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument(
+        "--camera",
+        type=int,
+        default=-1,
+        help="Indice da camera. Use -1 para tentar automaticamente.",
+    )
+    parser.add_argument(
+        "--max-camera-index",
+        type=int,
+        default=5,
+        help="Maior indice testado no modo automatico e no --list-cameras.",
+    )
+    parser.add_argument(
+        "--list-cameras",
+        action="store_true",
+        help="Lista cameras disponiveis e encerra.",
+    )
     parser.add_argument("--threshold", type=float, default=0.6)
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--repeat", type=int, default=1)
@@ -458,7 +501,18 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--top-k deve ser maior ou igual a 1")
     if args.workers < 1:
         raise ValueError("--workers deve ser maior ou igual a 1")
+    if args.max_camera_index < 0:
+        raise ValueError("--max-camera-index deve ser maior ou igual a 0")
 
 
 if __name__ == "__main__":
-    run_webcam(parse_args())
+    parsed_args = parse_args()
+    if parsed_args.list_cameras:
+        cameras = list_available_cameras(parsed_args.max_camera_index)
+        if cameras:
+            print("cameras disponiveis:", ", ".join(str(index) for index in cameras))
+        else:
+            print("nenhuma camera encontrada")
+        raise SystemExit(0)
+
+    run_webcam(parsed_args)
