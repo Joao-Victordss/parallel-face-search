@@ -1,0 +1,46 @@
+# Empacotamento do projeto Parallel Face Search.
+#
+# Instale em modo editavel a partir da raiz do repositorio:
+#
+#     pip install -e .
+#
+# Isso disponibiliza o pacote `face_search` e os comandos `face-search-*`
+# listados em [project.scripts].
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parallel-face-search"
+version = "1.0.0"
+description = "Reconhecimento facial de procurados do MJ pela webcam, robusto a mascaras."
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = { text = "MIT" }
+
+# As versoes sao mantidas em sincronia com requirements.txt. O onnxruntime
+# aqui e o de CPU; para GPU, instale tambem o requirements-gpu.txt.
+dependencies = [
+    "beautifulsoup4==4.12.3",
+    "boto3==1.34.162",
+    "insightface==0.7.3",
+    "numpy==1.26.4",
+    "onnxruntime==1.18.1",
+    "opencv-python==4.10.0.84",
+    "Pillow==10.4.0",
+    "requests==2.32.3",
+]
+
+# Cada comando aponta para a funcao main() de um modulo de CLI.
+[project.scripts]
+face-search-check = "face_search.cli.check_environment:main"
+face-search-sync = "face_search.cli.sync_gallery:main"
+face-search-webcam = "face_search.cli.webcam_search:main"
+face-search-build-gallery = "face_search.cli.build_local_gallery:main"
+face-search-match = "face_search.cli.match_images:main"
+face-search-evaluate = "face_search.cli.evaluate_accuracy:main"
+
+[tool.setuptools.packages.find]
+# Descobre o pacote face_search e seus subpacotes; ignora pastas auxiliares.
+include = ["face_search*"]

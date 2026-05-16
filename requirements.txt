@@ -1,10 +1,21 @@
+# Dependencias de CPU do projeto. A forma recomendada de instalar e
+# `pip install -e .`, que le estas mesmas versoes do pyproject.toml e
+# tambem cria os comandos `face-search-*`. Este arquivo e mantido para
+# quem prefere instalar apenas as dependencias, sem o pacote.
+#
+# O insightface declara dependencia de opencv-python-headless, que nao tem
+# janela grafica. Numa instalacao limpa, os dois pacotes opencv acabam
+# instalados e o headless costuma vencer, quebrando o cv2.imshow da webcam.
+# Depois de instalar, garanta que so o opencv-python (com GUI) fica:
+#
+#   pip uninstall -y opencv-python opencv-python-headless
+#   pip install --no-cache-dir opencv-python==4.10.0.84
+#
 beautifulsoup4==4.12.3
 boto3==1.34.162
-face-recognition==1.3.0
-face-recognition-models==0.3.0
+insightface==0.7.3
 numpy==1.26.4
+onnxruntime==1.18.1
 opencv-python==4.10.0.84
 Pillow==10.4.0
-psutil==6.0.0
 requests==2.32.3
-setuptools<81
