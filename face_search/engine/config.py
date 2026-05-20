@@ -22,6 +22,7 @@ class EngineConfig:
     """
 
     # Provider de execucao do ONNX Runtime. "cuda" usa a GPU NVIDIA;
+    # "directml" usa DirectML (GPU AMD/Intel/NVIDIA no Windows);
     # "cpu" usa apenas o processador (mais lento, suficiente para o sync).
     onnx_provider: str = "cuda"
 
@@ -65,16 +66,19 @@ class EngineConfig:
         """Lista de providers do ONNX Runtime, na ordem de preferencia.
 
         Com CUDA, o provider de GPU vem primeiro e o de CPU fica como reserva.
+        Com DirectML, o provider de GPU DirectML vem primeiro.
         """
 
         if self.onnx_provider == "cuda":
             return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        elif self.onnx_provider == "directml":
+            return ["DmlExecutionProvider", "CPUExecutionProvider"]
         return ["CPUExecutionProvider"]
 
     def ctx_id(self) -> int:
         """Identificador do dispositivo para o InsightFace.
 
-        ``0`` seleciona a primeira GPU; ``-1`` forca a execucao na CPU.
+        ``0`` seleciona a primeira GPU (CUDA/DirectML); ``-1`` forca a execucao na CPU.
         """
 
-        return 0 if self.onnx_provider == "cuda" else -1
+        return 0 if self.onnx_provider in ("cuda", "directml") else -1

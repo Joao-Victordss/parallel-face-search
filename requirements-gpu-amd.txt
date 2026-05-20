@@ -1,0 +1,15 @@
+# Dependencias para GPU AMD no Windows (DirectML).
+# Instale primeiro o requirements.txt e depois este arquivo.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-gpu-amd.txt
+#
+# DirectML funciona com qualquer GPU compatível com Windows (NVIDIA, AMD, Intel).
+# Se já tiver onnxruntime instalado, pode ficar (DirectML coexiste com CPU).
+#
+# Para ativar DirectML, crie um arquivo .env na raiz do projeto com:
+#   ONNX_PROVIDER=directml
+#
+# Sem o .env, o sistema usa CPU automaticamente.
+#
+onnxruntime-directml>=1.24.0
