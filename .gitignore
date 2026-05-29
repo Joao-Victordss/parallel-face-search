@@ -19,3 +19,7 @@ dist/
 
 # Configuração local de ferramentas
 .claude/
+
+# Projeto final
+projeto.pdf
+plano.md
